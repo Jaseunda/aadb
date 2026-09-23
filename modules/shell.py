@@ -36,9 +36,10 @@ def entry(argv: list) -> int:
     if cmd and cmd[0] == "--":
         cmd.pop(0)
 
-    transport, label, ep = connect.ensure_online(log, spec=spec)
-    if not transport:
+    res = connect.ensure_online(log, spec=spec)
+    if not res or not res[0]:
         return 1
+    transport, label, ep = res
 
     if not cmd:
         print(f"\n  {_c('1;36', '::')} Shell on {_c('1;33', label)} "

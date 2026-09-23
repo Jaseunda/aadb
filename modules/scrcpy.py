@@ -39,9 +39,10 @@ def entry(argv: list) -> int:
             "bad")
         return 1
 
-    transport, label, ep = connect.ensure_online(log, spec=spec)
-    if not transport:
+    res = connect.ensure_online(log, spec=spec)
+    if not res or not res[0]:
         return 1
+    transport, label, ep = res
 
     print(f"\n  {_c('1;36', '::')} Mirroring {_c('1;33', label)} "
           f"{_c('2', '(' + ep + ')')}…\n", flush=True)

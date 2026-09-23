@@ -19,6 +19,7 @@ import sys
 
 from config import log_path
 from log import _c, add_common_args, make_logger
+from menu import select_menu
 from registry import (devices, endpoint_of, find as reg_find, new_record,
                       remove as reg_remove, touch as reg_touch, upsert)
 
@@ -199,27 +200,24 @@ def _online_ready() -> list:
 
 
 def _picker(log, options: list, prompt: str):
-    """Numbered picker (same shape as the ULS device picker).
-    ``options`` = [(key, display_string)]. Returns the chosen key."""
-    print()
-    for i, (_, display) in enumerate(options, 1):
-        print(f"    {i}) {display}")
-    while True:
-        try:
-            raw = input(f"\n  {_c('1;36', '::')} {prompt} "
-                        f"[1-{len(options)}, Enter=1]: ").strip()
-        except EOFError:
-            raw = ""
-        if not raw:
-            return options[0][0]
-        try:
-            idx = int(raw)
-        except ValueError:
-            print(f"\n  {_c('1;31', '✗')} enter a number (1-{len(options)})")
-            continue
-        if 1 <= idx <= len(options):
-            return options[idx - 1][0]
-        print(f"\n  {_c('1;31', '✗')} pick 1-{len(options)}")
+    """Interactive arrow-key picker (with fallback to numbered prompt).
+    ``options`` = [(key, display_string)] or [(key, label, detail)]. Returns the chosen key or None."""
+    if not options:
+        return None
+
+    # Try arrow navigation via select_menu
+    items = []
+    for opt in options:
+        if len(opt) == 3:
+            items.append((opt[1], opt[2]))
+        else:
+            items.append((opt[0], opt[1] if opt[1] != opt[0] else ""))
+
+    title = f"{prompt.strip()}"
+    idx = select_menu(title, items, default_index=0, allow_back=True)
+    if idx >= 0 and idx < len(options):
+        return options[idx][0]
+    return None
 
 
 def _target_explicit(log, spec: str):
@@ -271,10 +269,15 @@ def _target_explicit(log, spec: str):
         if serial:
             _adopt(host, port, serial, model)
         return ep, spec, ep
-    # A raw serial of something already attached (e.g. USB) — adb -s accepts it.
+    # A raw serial or endpoint of something already attached
     for e in conn:
+        if e == spec:
+            s = resolve_serial(e) or e
+            m = resolve_model(e) or ""
+            return e, m or e, e
         if resolve_serial(e) == spec:
-            return e, spec, e
+            m = resolve_model(e) or ""
+            return e, m or spec, e
     log(f"adb {spec}: not a remembered device, endpoint, or connected serial",
         "bad")
     return None, None, None
@@ -294,10 +297,10 @@ def _target_auto(log, prompt: str):
             return use(*ready[0])
         if len(ready) > 1:
             options = [(d.get("name") or ep,
-                        f"{_c('1;36', d.get('name') or ep)}  "
-                        f"{_c('2', endpoint_of(d) or '?')}")]
-            for d, ep in ready:
-                pick = _picker(log, options, f"{prompt}")
+                        d.get("name") or ep,
+                        endpoint_of(d) or ep) for d, ep in ready]
+            pick = _picker(log, options, f"{prompt}")
+            if pick:
                 for d2, ep2 in ready:
                     if (d2.get("name") or ep2) == pick:
                         return use(d2, ep2)
@@ -306,33 +309,68 @@ def _target_auto(log, prompt: str):
     ready = _online_ready()
     if ready:
         return finish(ready)
-    log("adb no remembered device is online — reconnecting "
-        "your saved devices…", "warn")
-    scan_registry(log, discover=False)
-    ready = _online_ready()
-    if ready:
-        return finish(ready)
     remembered = devices()
     if remembered:
+        log("adb no remembered device is online — reconnecting "
+            "your saved devices…", "warn")
+        scan_registry(log, discover=False)
+        ready = _online_ready()
+        if ready:
+            return finish(ready)
         log(f"sys {len(remembered)} remembered device(s), none reachable yet",
             "bad")
         log("sys is your phone on the same Wi-Fi, with wireless debugging on?",
             "dim")
         options = [(d.get("name") or ep,
-                    f"{_c('1;36', d.get('name') or ep)}  "
-                    f"{_c('2', endpoint_of(d) or '?')}  {_c('1;31', 'offline')}")
+                    d.get("name") or ep,
+                    f"{ep} (offline)")
                    for d in remembered if (ep := endpoint_of(d))]
         if options:
             pick = _picker(log, options, "force a connection attempt on")
-            return _target_explicit(log, pick)
+            if pick:
+                res = _target_explicit(log, pick)
+                if res and res[0]:
+                    return res
         return None, None, None
-    log("sys no remembered devices — run 'aadb add NAME HOST:PORT' first",
-        "dim")
+
+    # No remembered devices in registry: check if devices are already connected to ADB!
     live = connected_endpoints()
     if live:
-        hint = live[0]
-        log(f"net {len(live)} device(s) are online but not remembered — "
-            f"e.g. 'aadb add NAME {hint}'", "dim")
+        # Group by serial so mDNS duplicates don't clutter the picker
+        live_options = []
+        seen_serials = set()
+        for ep in live:
+            s = resolve_serial(ep) or ep
+            if s in seen_serials:
+                continue
+            seen_serials.add(s)
+            m = resolve_model(ep) or ""
+            label = m if m else s
+            live_options.append((ep, label, ep))
+
+        if len(live_options) == 1:
+            ep, label, _ = live_options[0]
+            s = resolve_serial(ep) or ep
+            m = resolve_model(ep) or ""
+            d = new_record(label, ep.partition(":")[0] if ":" in ep else ep,
+                           int(ep.partition(":")[2]) if ":" in ep and ep.partition(":")[2].isdigit() else DEFAULT_PORT,
+                           serial=s, model=m)
+            return use(d, ep)
+        elif len(live_options) > 1:
+            pick = _picker(log, live_options, f"{prompt}")
+            if pick:
+                for ep, label, _ in live_options:
+                    if ep == pick:
+                        s = resolve_serial(ep) or ep
+                        m = resolve_model(ep) or ""
+                        d = new_record(label, ep.partition(":")[0] if ":" in ep else ep,
+                                       int(ep.partition(":")[2]) if ":" in ep and ep.partition(":")[2].isdigit() else DEFAULT_PORT,
+                                       serial=s, model=m)
+                        return use(d, ep)
+        return None, None, None
+
+    log("sys no remembered devices — run 'aadb add NAME HOST:PORT' first",
+        "dim")
     return None, None, None
 
 
