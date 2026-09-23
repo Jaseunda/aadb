@@ -1,5 +1,19 @@
 # aadb changelog
 
+## 0.1.1 — 2026-09-23
+
+Bug fix — `aadb shell` / `aadb scrcpy` crashed with
+`TypeError: cannot unpack non-iterable NoneType object` when run with no
+remembered devices (or when nothing could be reached).  Device selection
+now always returns a consistent `(transport, label, endpoint)` result, so
+both commands exit cleanly with a helpful hint instead of a traceback.
+
+- When devices are on the wire but none are remembered, aadb now suggests
+  `aadb add NAME HOST[:PORT]` for the live endpoint instead of claiming
+  "no device is online".
+- `aadb connect NAME` reports a proper non-zero exit code when the device
+  could not be reached.
+
 ## 0.1.0 — 2026-09-23
 
 Initial release — Advanced ADB.

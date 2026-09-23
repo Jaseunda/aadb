@@ -225,7 +225,8 @@ def _picker(log, options: list, prompt: str):
 def _target_explicit(log, spec: str):
     """Connect/verify a specific device.
     Returns (transport, label, endpoint) where transport is the token
-    ``adb -s`` accepts (endpoint/mDNS name for wireless, serial for USB)."""
+    ``adb -s`` accepts (endpoint/mDNS name for wireless, serial for USB).
+    All three are None when nothing could be reached."""
     dev = reg_find(spec)
     conn = connected_endpoints()
     if dev:
@@ -256,14 +257,14 @@ def _target_explicit(log, spec: str):
             return ep, label, ep
         log(f"adb {label}: {detail.strip() or 'could not connect'} "
             f"({_c('2', ep)})", "bad")
-        return None
+        return None, None, None
     if ":" in spec:
         host, _, port = spec.partition(":")
         port = int(port) if port.isdigit() else DEFAULT_PORT
         ok, ep, detail = connect_endpoint(host, port)
         if not ok:
             log(f"adb {spec}: {detail.strip() or 'could not connect'}", "bad")
-            return None
+            return None, None, None
         serial = resolve_serial(ep)
         model = resolve_model(ep)
         log(f"adb {spec}: connected ({_c('2', ep)})", "ok")
@@ -276,7 +277,7 @@ def _target_explicit(log, spec: str):
             return e, spec, e
     log(f"adb {spec}: not a remembered device, endpoint, or connected serial",
         "bad")
-    return None
+    return None, None, None
 
 
 def _target_auto(log, prompt: str):
@@ -300,13 +301,13 @@ def _target_auto(log, prompt: str):
                 for d2, ep2 in ready:
                     if (d2.get("name") or ep2) == pick:
                         return use(d2, ep2)
-        return None
+        return None, None, None
 
     ready = _online_ready()
     if ready:
         return finish(ready)
-    log("adb no device is online — reconnecting your remembered devices…",
-        "warn")
+    log("adb no remembered device is online — reconnecting "
+        "your saved devices…", "warn")
     scan_registry(log, discover=False)
     ready = _online_ready()
     if ready:
@@ -324,15 +325,21 @@ def _target_auto(log, prompt: str):
         if options:
             pick = _picker(log, options, "force a connection attempt on")
             return _target_explicit(log, pick)
-        return None
+        return None, None, None
     log("sys no remembered devices — run 'aadb add NAME HOST:PORT' first",
         "dim")
-    return None
+    live = connected_endpoints()
+    if live:
+        hint = live[0]
+        log(f"net {len(live)} device(s) are online but not remembered — "
+            f"e.g. 'aadb add NAME {hint}'", "dim")
+    return None, None, None
 
 
 def ensure_online(log, spec: str = None, prompt: str = "connect to"):
     """Pick a device and guarantee it is connected.
-    Returns (transport, label, endpoint) or None if nothing could be reached."""
+    Returns (transport, label, endpoint) — all None when nothing was
+    reachable, so callers can unpack unconditionally."""
     if spec:
         return _target_explicit(log, spec)
     return _target_auto(log, prompt)
@@ -356,7 +363,7 @@ def entry(argv: list, scan_mode: bool = False) -> int:
 
     if spec and not scan_mode:
         res = ensure_online(log, spec=spec)
-        return 0 if res else 1
+        return 0 if res and res[0] else 1
 
     ok, total = scan_registry(log, discover=True)
     log(f"sys reconnect: {ok}/{total} device(s) online now",

@@ -34,7 +34,7 @@ for _p in (_me, os.path.join(_me, "modules")):
 
 from log import _c  # noqa: E402
 
-_VERSION = "0.1.0"
+_VERSION = "0.1.1"
 
 
 def _banner() -> str:

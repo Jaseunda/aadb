@@ -33,7 +33,15 @@ mkdir -p "$APP"
 cp "$REPO_ROOT/aadb.py"   "$APP/aadb.py"
 cp "$REPO_ROOT"/modules/*.py "$APP/"
 
-"$PY" -m zipapp "$APP" -m "aadb:main" -p "/usr/bin/env python3" \
+# Explicit entry point so exit codes propagate — zipapp's generated
+# __main__.py would call main() and silently drop its return value.
+cat > "$APP/__main__.py" <<'PY'
+import sys
+from aadb import main
+sys.exit(main())
+PY
+
+"$PY" -m zipapp "$APP" -p "/usr/bin/env python3" \
     -o "$BIN_DIR/aadb"
 chmod 755 "$BIN_DIR/aadb"
 if [[ "$(uname -s)" == "Darwin" ]]; then
