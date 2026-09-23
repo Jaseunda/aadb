@@ -135,6 +135,23 @@ updates the saved endpoint automatically.
 
 ---
 
+## Build, release & publish
+
+```sh
+make build          # build/bin/aadb — one self-contained executable (zipapp)
+./build/bin/aadb --version       # run it from the build dir
+make install        # build + install to ~/.aadb/aadb, linked into ~/.local/bin
+aadb status         # now on your PATH (add ~/.local/bin if missing)
+
+make release        # releases/aadb-<VERSION>.zip + SHA256SUMS
+make publish        # GitHub release v<VERSION> (+ tag) via gh
+```
+
+The version lives in `_VERSION` at the top of `aadb.py` — bump it before a
+release. `make check` syntax-checks every source file first if you like.
+
+---
+
 ## How the registry works
 
 The device memory lives in `~/.aadb/devices.json` (plain JSON — it contains

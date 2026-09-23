@@ -1,3 +1,12 @@
+# build artifacts (scripts kept)
+/build/*
+!/build/build_bin.sh
+!/build/make_release.sh
+!/build/publish_release.sh
+
+# release bundles
+/releases/
+
 __pycache__/
 *.py[cod]
 *.log
